@@ -11,6 +11,7 @@
  */
 namespace Yandex\Disk;
 
+use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Exception\ClientException;
@@ -533,5 +534,54 @@ class DiskClient extends AbstractServiceClient
 
         $propArray = (array) $decodedResponseBody->children('DAV:')->response->propstat->prop->children();
         return empty($propArray['public_url']) ? (bool)false : (string)$propArray['public_url'];
+    }
+
+    /**
+     * @param string $url Can be of several types
+     *  - url to file
+     *  - file public key - this property can be obtained using REST Api
+     *  - path to file on yandex disk
+     *    * ya-disk:///disk/{path/to/the/file} where path is path to the file from the root on yandex disk
+     *    * disk:/{path/to/the/file} where path is path to the file from the root on yandex disk
+     *    * ya-disk-public://{file-public-key} - this property can be obtained using REST Api
+     *    * {file-public-key} - this property can be obtained using REST Api
+     * @param string|null $name
+     * @return string
+     */
+    public function getDocviewerUrl($url, $name = null)
+    {
+        $yaDiskScheme = 'ya-disk://';
+        $yaDiskPublicScheme = 'ya-disk-public://';
+
+        if (empty($url)) {
+            throw new InvalidArgumentException("Parameter 'url' must not be empty");
+        }
+
+        $isNotUrl = filter_var($url, FILTER_VALIDATE_URL) === false;
+        $isPathOnYaDisk = substr($url, 0, strlen('disk:/')) === 'disk:/';
+
+        if ($isPathOnYaDisk) {
+            $url = $yaDiskScheme . '/' . substr_replace($url, 'disk/', 0, strlen('disk:/'));
+        } elseif ($isNotUrl) {
+            $decodedKey = base64_decode($url, true);
+            if ($decodedKey && strlen($decodedKey) === 32) {
+                $url = $yaDiskPublicScheme . $url;
+            }
+        }
+
+        $isYaDiskUrl = substr($url, 0, strlen($yaDiskScheme)) === $yaDiskScheme;
+
+        $isYaDiskPublicUrl = substr($url, 0, strlen($yaDiskPublicScheme)) === $yaDiskPublicScheme;
+
+        if ((!$isYaDiskUrl && !$isYaDiskPublicUrl) && $isNotUrl) {
+            throw new InvalidArgumentException("Parameter 'url' is not url");
+        }
+
+        $params = [
+            'url' => $url,
+            'name' => $name
+        ];
+
+        return 'https://docviewer.yandex.ru/' . '?' . http_build_query($params, null, '&', PHP_QUERY_RFC3986);
     }
 }
